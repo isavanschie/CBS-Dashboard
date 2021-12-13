@@ -1,0 +1,329 @@
+```{r}
+library(ggplot2)
+library(leaflet)
+library(dplyr)
+library(leaflet.extras)
+library(shiny)
+library(data.table)
+library(tidyverse)
+library(RColorBrewer)
+library(geojsonio)
+library(magrittr)
+library(htmlwidgets)
+library(sf)
+```
+
+You need to install packages leaflet, dplyr, and leaflet.extras
+ 
+
+```{r}
+data <- aardbeving3
+```
+```{r}
+data$depth_type <-  ifelse(data$DEPTH >3, "+3km",
+  ifelse(data$DEPTH <=2, "0-2km",
+                    ifelse(data$DEPTH<=3 | data$DEPTH >2, "2-3km")))
+```
+
+```{r}
+municipalities <- geojson_read("~/Downloads/provinces.geojson", what = "sp")
+```
+```{r}
+head(municipalities)
+```
+ 
+```{r}
+Groningen_municipality <- municipalities[municipalities@data$name == "Groningen", ]
+Drenthe_municipality <- municipalities[municipalities@data$name == "Drenthe", ]
+Frysland_municipality <- municipalities[municipalities@data$name == "Friesland (Fryslân)", ]
+ 
+```
+ 
+ 
+```{r}
+ui <- fluidPage(
+  titlePanel("Total amount of earthquakes- Northern Netherlands"),
+  mainPanel( 
+#this will create a space for us to display our map
+  sliderInput(inputId = "date", "Date:", min = 
+  as.Date("1986-12-26"), max = as.Date("2021-11-24"), 
+  value = as.Date("1986-12-26"), width = "600px"),
+leafletOutput("mymap"), 
+#this allows me to put the checkmarks ontop of the map to allow people to view earthquake depth or overlay a heatmap
+absolutePanel(top = 170, left = 20, 
+      checkboxInput("markers", "Depth", FALSE),
+      checkboxInput("heat", "Heatmap", FALSE)
+    )
+))
+```
+
+```{r}
+library(shiny)
+
+# Define server logic required to draw a histogram
+server  <- function(input, output, session) {
+    #define the color of for the mag of the earquakes
+    pal <- colorNumeric(
+        palette = c('gold', 'orange', 'dark orange', 'orange red', 'red', 'dark red'),
+        domain = data$MAG
+    )
+    
+    #define color for the depth of the earthquakes 
+    data$depth_type <- ifelse(data$DEPTH >3, "+3km",
+                               ifelse(data$DEPTH <=2, "0-2km",
+                              ifelse(data$DEPTH<=3 | data$DEPTH >2, "2-3km")))
+                                     
+    pal2 <- colorFactor(
+        palette = c('red', 'blue', 'yellow'),
+        domain = data$depth_type
+    )
+    #create the map
+    output$mymap <- renderLeaflet({
+        
+        leaflet() %>% 
+        setView(lng = 5.7, lat = 53, zoom = 8) %>%
+        addTiles() %>%
+        addPolygons(data = Groningen_municipality, stroke = TRUE, color = "blue", smoothFactor = 0.2, fillOpacity = 0.5, fillColor = "lightgray") %>%
+        addPolygons(data = Drenthe_municipality, stroke = TRUE, color = "blue", smoothFactor = 0.2, fillOpacity = 0.5, fillColor = "lightgray") %>%
+        addPolygons(data = Frysland_municipality, stroke = TRUE, color = "blue", smoothFactor = 0.2, fillOpacity = 0.5, fillColor = "lightgray") %>%
+            addCircles(data = df(), lat = ~ LAT, lng = ~ LON, weight = 1, radius = ~MAG*250,
+                       popup = ~as.character(MAG), label = ~as.character(paste0("Magnitude: ", sep = " ", MAG, "\nLocation: ", sep = " ", LOCATION)), color = ~pal(MAG), fillOpacity = 0.3)
+        
+    })
+
+        
+    
+    # Rosanne Make dataset reactive on slider bar
+    df <- reactive({
+        
+        # First, I make a new variable that gives the value of the slider in the same format as the YYMMDD format.
+        # Then I filter the data based on that new variable
+        dat <- data %>%
+            mutate(slider = paste0(substr(as.character(input$date),1,4),substr(as.character(input$date),6,7),substr(as.character(input$date),9,10))) %>%
+            filter(YYMMDD <= slider)
+            
+        dat
+        
+        # browser()
+    })
+    
+    observe({
+        proxy <- leafletProxy("mymap", data = df()) # Rosanne: here you call the data. As the data is in a function, use () behind the name of the function.I don't know exactly what this part does, so check whether you want to load data (all data) or d f (part of the data based on slider)
+        # browser() Rosanne: the browser function stops your code as this point. Then you can see how the proxy element (in which your data is) looks like at this moment. Is this how you want it? No, then you know something is not going good.
+        proxy %>% clearMarkers()
+        if (input$markers) {
+            proxy %>% addCircleMarkers(stroke = FALSE, color = ~pal2(depth_type), fillOpacity = 0.1, label = ~as.character(paste0("Magnitude: ", sep = " ", MAG,    "\nLocation: ", sep = " ", LOCATION))) %>%
+                addLegend("bottomright", pal = pal2, values = df()$depth_type, # Rosanne: same here
+                          title = "Depth Type",
+                          opacity = 1)}
+        else {
+            proxy %>% clearMarkers() %>% clearControls()
+        }
+    })
+    
+    observe({
+        proxy <- leafletProxy("mymap", data = df())
+        proxy %>% clearMarkers()
+        if (input$heat) {
+            proxy %>%  addHeatmap(lng=~LON, lat=~LAT, intensity =~MAG, blur =  10, max = 0.05, radius = 15) 
+        }
+        else{
+            proxy %>% clearHeatmap()
+        }
+        
+        
+    })
+
+}
+ 
+```
+
+
+```{r}
+server <- function(input, output, session) {
+#define the color pallate for the magnitidue of the earthquake
+
+  
+#define the color of for the mag of the earquakes
+ pal <- colorNumeric(
+    palette = c('gold', 'orange', 'dark orange', 'orange red', 'red', 'dark red'),
+    domain = data$MAG
+  )
+  
+#define color for the depth of the earthquakes 
+ 
+ pal2 <- colorFactor(
+    palette = c('red', 'blue', 'yellow'),
+    domain = data$depth_type
+  )
+#create the map
+  output$mymap <- renderLeaflet({
+    
+    leaflet() %>% 
+      setView(lng = 5.7, lat = 53, zoom = 8) %>% #setting the view over ~ NL
+      addTiles() %>%
+      addCircles(data = data, lat = ~ LAT, lng = ~ LON, weight = 1, radius = ~MAG*250,
+                 popup = ~as.character(MAG), label = ~as.character(paste0("Magnitude: ", sep = " ", MAG, "\nLocation: ", sep = " ", LOCATION)), color = ~pal(MAG), fillOpacity = 0.3)
+    
+})
+
+  observe({
+    proxy <- leafletProxy("mymap", data = data)
+    proxy %>% clearMarkers()
+    if (input$markers) {
+      proxy %>% addCircleMarkers(stroke = FALSE, color = ~pal2(depth_type), fillOpacity = 0.1, label = ~as.character(paste0("Magnitude: ", sep = " ", MAG,    "\nLocation: ", sep = " ", LOCATION))) %>%
+        addLegend("bottomright", pal = pal2, values = data$depth_type,
+                  title = "Depth Type",
+                  opacity = 1)}
+    else {
+      proxy %>% clearMarkers() %>% clearControls()
+    }
+  })
+  
+  observe({
+    proxy <- leafletProxy("mymap", data = data)
+    proxy %>% clearMarkers()
+    if (input$heat) {
+      proxy %>%  addHeatmap(lng=~LON, lat=~LAT, intensity =~MAG, blur =  10, max = 0.05, radius = 15) 
+      }
+    else{
+      proxy %>% clearHeatmap()
+      }
+    
+    
+  })
+}
+```
+
+```{r}
+server <- function(input, output, session) {
+#define the color pallate for the magnitidue of the earthquake
+
+  
+#define the color of for the depth of the earquakes
+ pal2 <- colorFactor(
+    palette = c('gold', 'orange', 'dark orange', 'orange red', 'red', 'dark red'),
+    domain = data$MAG
+  )
+  
+ pal2 <- colorFactor(
+    palette = c('blue', 'yellow', 'red'),
+    domain = data$depth_type
+  )
+#create the map
+  output$mymap <- renderLeaflet({
+    
+    rowindex = which(as.Date(as.character(data$YYMMDD), 
+    "YYMMDD") == input$date)
+    
+    leaflet() %>% 
+      setView(lng = 52, lat = -5, zoom = 2) %>%#setting the view over ~ NL
+      addTitles() %>%
+      addCircles(data = data, lat = ~ LAT, lng = ~ LON, weight = 1, radius = ~MAG*25000, popup = ~as.character(MAG), label = ~as.character(paste0("Magnitude: ", sep = " ", MAG)), color = ~brewer.pal(MAG), fillOpacity = 0.5)
+  })
+
+  observe({
+    proxy <- leafletProxy("mymap", data = data)
+    proxy %>% clearMarkers()
+    if (input$markers) {
+      proxy %>% addCircleMarkers(stroke = FALSE, color = ~pal2(depth_type), fillOpacity = 0.2,      label = ~as.character(paste0("Magnitude: ", sep = " ", MAG))) %>%
+        addLegend("bottomright", pal = pal2, values = data$depth_type,
+                  title = "Depth Type",
+                  opacity = 1)}
+    else {
+      proxy %>% clearMarkers() %>% clearControls()
+    }
+  })
+  
+  observe({
+    proxy <- leafletProxy("mymap", data = data)
+    proxy %>% clearMarkers()
+    if (input$heat) {
+      proxy %>%  addHeatmap(lng=~LON, lat=~LAT, intensity = ~MAG, blur =  10, max = 0.05, radius = 15) 
+      }
+    else{
+      proxy %>% clearHeatmap()
+      }
+    
+    
+  })
+}
+```
+
+
+```{r}
+server <- function(input, output, session) {
+#define the color pallate for the magnitidue of the earthquake
+
+  
+#define the color of for the mag of the earquakes
+ pal <- colorNumeric(
+    palette = c('gold', 'orange', 'dark orange', 'orange red', 'red', 'dark red'),
+    domain = data$MAG
+  )
+  
+#define color for the depth of the earthquakes 
+ 
+ pal2 <- colorFactor(
+    palette = c('red', 'blue', 'yellow'),
+    domain = data$depth_type
+  )
+#create the map
+  output$mymap <- renderLeaflet({
+    
+    leaflet() %>% 
+      setView(lng = 5.7, lat = 53, zoom = 8) %>% #setting the view over ~ NL
+      addTiles() %>%
+      addCircles(data = data, lat = ~ LAT, lng = ~ LON, weight = 1, radius = ~MAG*250,
+                 popup = ~as.character(MAG), label = ~as.character(paste0("Magnitude: ", sep = " ", MAG, "\nLocation: ", sep = " ", LOCATION)), color = ~pal(MAG), fillOpacity = 0.3)
+    
+})
+
+  observe({
+    proxy <- leafletProxy("mymap", data = data)
+    proxy %>% clearMarkers()
+    if (input$markers) {
+      proxy %>% addCircleMarkers(stroke = FALSE, color = ~pal2(depth_type), fillOpacity = 0.1, label = ~as.character(paste0("Magnitude: ", sep = " ", MAG,    "\nLocation: ", sep = " ", LOCATION))) %>%
+        addLegend("bottomright", pal = pal2, values = data$depth_type,
+                  title = "Depth Type",
+                  opacity = 1)}
+    else {
+      proxy %>% clearMarkers() %>% clearControls()
+    }
+  })
+  
+  observe({
+    proxy <- leafletProxy("mymap", data = data)
+    proxy %>% clearMarkers()
+    if (input$heat) {
+      proxy %>%  addHeatmap(lng=~LON, lat=~LAT, intensity =~MAG, blur =  10, max = 0.05, radius = 15) 
+      }
+    else{
+      proxy %>% clearHeatmap()
+      }
+    
+    
+  })
+}
+```
+
+
+
+```{r}
+shinyApp(ui, server)
+```
+```{r}
+municipalities2 <- geojson_read("~/Downloads/arrondissementsgebied_2021.geojson", what = "sp")
+```
+
+```{r}
+gebieden_kaart <- c("0003","0010","0014","0024","0037","0047","0059","0060","0072","0074","0080","0085","
+  0086","0088","0090","0093","0096","0098","0106","0109","0114","0118","0119","0737","0765","1680","1681",
+                      "1690","1699","1701","1730","1731","1891","1895","1900","1940","1949","1950","1952","1966","1969","1970")
+ 
+ map_buurt <- municipalities2 %>%
+    mutate(gemeentecode = str_sub(statcode,3,6)) %>%
+    filter(gemeentecode %in% gebieden_kaart) %>%
+     sf_geojson()
+```
+
